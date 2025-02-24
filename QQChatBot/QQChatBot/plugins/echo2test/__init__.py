@@ -1,9 +1,5 @@
 from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, Event
-import os
-
-current_file_path = os.path.abspath(__file__)
-print(current_file_path)
 
 # 创建一个匹配所有消息事件的
 echo2 = on_message(priority=10, block=False)
