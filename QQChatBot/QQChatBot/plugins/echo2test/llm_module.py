@@ -94,7 +94,7 @@ class LLMInterface:
 # Example usage
 if __name__ == "__main__":
     # load api key from file
-    with open("config.data", "r") as f:
+    with open("../../../config.data", "r") as f:
         api_key = f.read().strip()
 
     # Initialize the LLM interface
