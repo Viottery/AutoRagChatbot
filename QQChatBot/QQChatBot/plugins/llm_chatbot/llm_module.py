@@ -98,8 +98,8 @@ class LLMInterface:
             cnt = 0
             for event in self.workflow.stream({"messages": [input_message]}, config, stream_mode="values"):
                 cnt += 1
+                response = event["messages"][-1].content
                 if cnt == 3:
-                    response = event["messages"][-1].content
                     print(f"AI: {response}")
             return response
         else:
