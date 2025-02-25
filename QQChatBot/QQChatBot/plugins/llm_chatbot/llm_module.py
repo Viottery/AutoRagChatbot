@@ -2,9 +2,9 @@ import os
 import uuid
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import StateGraph, MessagesState
-from langchain.schema.messages import HumanMessage, SystemMessage
-from typing import Optional
+from langgraph.graph import StateGraph, MessagesState, START
+from langchain.schema.messages import HumanMessage, SystemMessage, AIMessage
+from typing import Optional, List
 
 
 class LLMInterface:
@@ -13,7 +13,7 @@ class LLMInterface:
     Supports custom API keys, base URLs, and formatted input/output.
     """
 
-    def __init__(self, api_key: str, base_url: Optional[str] = None, model_name: str = "gpt-3.5-turbo", temperature: float = 0.7, system_message: str= None):
+    def __init__(self, api_key: str, base_url: Optional[str] = None, model_name: str = "gpt-3.5-turbo", temperature: float = 0.7, system_message: str = None):
         """
         Initialize the LLM interface.
 
@@ -42,18 +42,22 @@ class LLMInterface:
         self.thread_id = str(uuid.uuid4())  # 为每个会话生成唯一的 thread_id
         self.workflow = self._create_workflow()  # 创建并编译工作流
 
-        # 添加系统提示词
-        if system_message:
-            system_message = SystemMessage(content=system_message)
-            # 工作流
-            # 配置对话 ID
-            config = {"configurable": {"thread_id": self.thread_id}}
-            cnt = 0
-            for event in self.workflow.stream({"messages": [system_message]}, config, stream_mode="values"):
-                cnt += 1
-                if cnt == 1:
-                    break
+        # 初始化增量摘要
+        self.summary = ""  # 用于存储压缩后的前文摘要
 
+        # 添加系统提示词
+        system_message = SystemMessage(content=system_message)
+        # 配置对话 ID
+        config = {"configurable": {"thread_id": self.thread_id}}
+        for event in self.workflow.stream({"messages": [system_message]}, config, stream_mode="values"):
+            break
+
+        # 添加摘要消息（初始为空）
+        initial_summary = HumanMessage(content="前文摘要：暂无")
+        # 配置对话 ID
+        config = {"configurable": {"thread_id": self.thread_id}}
+        for event in self.workflow.stream({"messages": [initial_summary]}, config, stream_mode="values"):
+            break
 
     def _create_workflow(self):
         """
@@ -66,11 +70,69 @@ class LLMInterface:
             response = self.llm.invoke(state["messages"])
             return {"messages": response}
 
+        # 定义增量摘要逻辑
+        from langchain_core.messages import RemoveMessage
+
+        def update_summary(state: MessagesState):
+            """
+            更新增量摘要，保留 system prompt、summary 消息和五条最新的用户消息，并删除余下的消息。
+            """
+            messages = state["messages"]
+
+            # 确保消息列表中至少包含 system prompt 和 summary 消息
+            if len(messages) < 3:
+                # 如果消息总数少于3条，直接返回原列表（因为没有足够的消息进行压缩）
+                return {"messages": messages}
+
+            # 提取 system prompt 和 summary 消息
+            system_prompt = messages[0]  # 假设 system prompt 是第一条消息
+            summary_message = messages[1]  # 假设 summary 是第二条消息
+
+            # 提取最新的五条用户消息（确保不会超出列表范围）
+            recent_messages = messages[-5:] if len(messages) > 5 else messages[2:]
+
+            # 获取需要删除的旧消息（排除 system prompt、summary 和最新的五条消息）
+            # 注意边界条件：确保不会重复包含 system prompt 或 summary
+            older_messages = messages[2:-5] if len(messages) > 7 else []
+
+            # 如果有旧消息，更新摘要
+            if older_messages:
+                # 构造摘要更新的提示
+                summary_prompt = (
+                        f"根据以下对话内容更新摘要，保留你认为值得记忆的信息，舍去不值得长远记忆的信息。你的摘要应当尽可能简短和精华：\n"
+                        f"旧摘要： {summary_message.content}\n"
+                        f"新消息组：\n" +
+                        "\n".join([msg.content for msg in older_messages]) +
+                        "\n你的回复只应当包含摘要内容。以‘前文摘要：’开始"
+                )
+                # 调用 LLM 更新摘要
+                new_summary_message = HumanMessage(content=summary_prompt)
+                updated_summary = self.llm.invoke([new_summary_message]).content
+                summary_message = HumanMessage(content=updated_summary)  # 更新摘要消息
+
+            older_messages = messages[1:] if len(messages) > 7 else []
+            # 按照内容重新构造 messages
+            new_recent_messages = []
+            if older_messages:
+                for msg in recent_messages:
+                    # 区分HumanMessage和AIMessage
+                    if isinstance(msg, HumanMessage):
+                        new_msg = HumanMessage(content=f"{msg.content}")
+                    else:
+                        new_msg = AIMessage(content=f"{msg.content}")
+                    new_recent_messages.append(new_msg)
+
+            # 返回更新后的消息列表：system prompt + 更新后的摘要 + 最新的五条消息
+            # 同时返回需要删除的消息
+            return {
+                "messages": [RemoveMessage(id=msg.id) for msg in older_messages] + [system_prompt, summary_message] + new_recent_messages
+            }
+
         # 添加节点和边
-        workflow.add_node("start", lambda x: x)  # 添加一个简单的起始节点
+        workflow.add_node("update_summary", update_summary)  # 添加增量摘要节点
         workflow.add_node("model", call_model)
-        workflow.add_edge("start", "model")  # 添加从起始节点到模型节点的边
-        workflow.set_entry_point("start")  # 设置入口点为 "start"
+        workflow.add_edge(START, "update_summary")
+        workflow.add_edge("update_summary", "model")  # 添加从摘要节点到模型节点的边
 
         # 编译工作流并传入 MemorySaver
         return workflow.compile(checkpointer=self.memory)
@@ -99,15 +161,19 @@ class LLMInterface:
             for event in self.workflow.stream({"messages": [input_message]}, config, stream_mode="values"):
                 cnt += 1
                 response = event["messages"][-1].content
+                # print(f"AI: {response}")
                 if cnt == 3:
-                    print(f"AI: {response}")
+                    print(f"AI11: {response}")
+                    print(event)
+
             return response
         else:
             # 仅更新记忆，不触发模型回复
             cnt = 0
             for event in self.workflow.stream({"messages": [input_message]}, config, stream_mode="values"):
                 cnt += 1
-                if cnt == 1:
+                if cnt == 2:
+                    print(event)
                     break
             return ""
 
