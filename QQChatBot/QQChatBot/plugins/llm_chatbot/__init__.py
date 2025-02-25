@@ -16,14 +16,21 @@ LLMInterface = LLMInterface(
 )
 
 # 创建一个匹配所有消息事件的
-echo2 = on_message(priority=10, block=False, rule=rule)
+reply_rule = on_message(priority=10, block=False, rule=rule)
 
 
-@echo2.handle()
-async def handle_echo(bot: Bot, event: Event):
+@reply_rule.handle()
+async def handle_reply(bot: Bot, event: Event):
     # 获取用户发送的消息
     user_message = event.get_plaintext()
-    if not user_message:
+    flag = False
+    groups = ["994771623", "823454041"]
+    for group in groups:
+        if group in event.get_session_id():
+            flag = True
+            break
+
+    if not user_message or not (flag or not ("group" in event.get_session_id())):
         return
 
     # 调用模型进行对话
