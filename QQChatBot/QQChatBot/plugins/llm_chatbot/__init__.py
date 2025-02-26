@@ -1,3 +1,5 @@
+import uuid
+
 from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, Event
 from .llm_module import LLMInterface
@@ -24,12 +26,19 @@ LLMInterface = LLMInterface(
 reply_rule = on_message(priority=8, block=True, rule=rule)
 update_rule = on_message(priority=10, block=False)
 
+# 保存session和thread_id关联性的字典
+session_dic = {}
+
 
 @reply_rule.handle()
 async def handle_reply(bot: Bot, event: Event):
     # 获取用户发送的消息
     user_message = event.get_plaintext()
-
+    session_id = event.get_session_id()
+    if "group" in session_id:
+        session_id = "group" + session_id.split('_')[1]
+    if session_id not in session_dic:
+        session_dic[session_id] = str(uuid.uuid4())
     # 回复过滤
     flag = False
     groups = ["994771623", "823454041"]
@@ -46,7 +55,7 @@ async def handle_reply(bot: Bot, event: Event):
     print(f"user input: {user_message}")
 
     # 调用模型进行对话
-    echo_message = LLMInterface.call_model_with_langchain(user_message, reply=True)
+    echo_message = LLMInterface.call_model_with_langchain(user_message, reply=True, thread_id=session_dic[session_id])
     await reply_rule.finish(echo_message)
 
 
@@ -54,7 +63,11 @@ async def handle_reply(bot: Bot, event: Event):
 async def handle_update(bot: Bot, event: Event):
     # 获取用户发送的消息
     user_message = event.get_plaintext()
-
+    session_id = event.get_session_id()
+    if "group" in session_id:
+        session_id = "group" + session_id.split('_')[1]
+    if session_id not in session_dic:
+        session_dic[session_id] = str(uuid.uuid4())
     # 更新记忆
     flag = False
     groups = ["994771623", "823454041"]
@@ -71,5 +84,4 @@ async def handle_update(bot: Bot, event: Event):
     print(f"content update: {user_message}")
 
     # 仅仅更新记忆
-    LLMInterface.call_model_with_langchain(user_message, reply=False)
-
+    LLMInterface.call_model_with_langchain(user_message, reply=False, thread_id=session_dic[session_id])

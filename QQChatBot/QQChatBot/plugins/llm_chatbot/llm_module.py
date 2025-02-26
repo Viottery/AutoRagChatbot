@@ -13,7 +13,8 @@ class LLMInterface:
     Supports custom API keys, base URLs, and formatted input/output.
     """
 
-    def __init__(self, api_key: str, base_url: Optional[str] = None, model_name: str = "gpt-3.5-turbo", temperature: float = 0.7, system_message: str = None):
+    def __init__(self, api_key: str, base_url: Optional[str] = None, model_name: str = "gpt-3.5-turbo",
+                 temperature: float = 0.7, system_message: str = None):
         """
         Initialize the LLM interface.
 
@@ -39,25 +40,11 @@ class LLMInterface:
 
         # Initialize LangGraph
         self.memory = MemorySaver()  # 使用 MemorySaver 作为持久化存储
-        self.thread_id = str(uuid.uuid4())  # 为每个会话生成唯一的 thread_id
+        self.be_init = []  # 保存初始化过的thread_id
         self.workflow = self._create_workflow()  # 创建并编译工作流
 
         # 初始化增量摘要
         self.summary = ""  # 用于存储压缩后的前文摘要
-
-        # 添加系统提示词
-        system_message = SystemMessage(content=system_message)
-        # 配置对话 ID
-        config = {"configurable": {"thread_id": self.thread_id}}
-        for event in self.workflow.stream({"messages": [system_message]}, config, stream_mode="values"):
-            break
-
-        # 添加摘要消息（初始为空）
-        initial_summary = HumanMessage(content="前文摘要：暂无")
-        # 配置对话 ID
-        config = {"configurable": {"thread_id": self.thread_id}}
-        for event in self.workflow.stream({"messages": [initial_summary]}, config, stream_mode="values"):
-            break
 
     def _create_workflow(self):
         """
@@ -125,7 +112,8 @@ class LLMInterface:
             # 返回更新后的消息列表：system prompt + 更新后的摘要 + 最新的五条消息
             # 同时返回需要删除的消息
             return {
-                "messages": [RemoveMessage(id=msg.id) for msg in older_messages] + [system_prompt, summary_message] + new_recent_messages
+                "messages": [RemoveMessage(id=msg.id) for msg in older_messages] + [system_prompt,
+                                                                                    summary_message] + new_recent_messages
             }
 
         # 添加节点和边
@@ -137,22 +125,41 @@ class LLMInterface:
         # 编译工作流并传入 MemorySaver
         return workflow.compile(checkpointer=self.memory)
 
-    def call_model_with_langchain(self, prompt: str, reply: bool = True) -> str:
+    def call_model_with_langchain(self, prompt: str, reply: bool = True, thread_id: str = "") -> str:
         """
         Call the large language model using LangChain and a formatted template.
 
         Args:
             prompt (str): The input prompt for the model.
             reply (bool): Whether to generate a response from the model.
+            thread_id (str): section id
 
         Returns:
             str: The response from the model (if reply is True).
         """
+
+        # if thread not init
+        if thread_id not in self.be_init:
+            self.be_init.append(thread_id)
+            # 添加系统提示词
+            system_message = SystemMessage(content=self.system_prompt)
+            # 配置对话 ID
+            config = {"configurable": {"thread_id": thread_id}}
+            for event in self.workflow.stream({"messages": [system_message]}, config, stream_mode="values"):
+                break
+
+            # 添加摘要消息（初始为空）
+            initial_summary = HumanMessage(content="前文摘要：暂无")
+            # 配置对话 ID
+            config = {"configurable": {"thread_id": thread_id}}
+            for event in self.workflow.stream({"messages": [initial_summary]}, config, stream_mode="values"):
+                break
+
         # 创建 HumanMessage
         input_message = HumanMessage(content=prompt)
 
         # 配置对话 ID
-        config = {"configurable": {"thread_id": self.thread_id}}
+        config = {"configurable": {"thread_id": thread_id}}
 
         if reply:
             # 调用工作流并获取响应
