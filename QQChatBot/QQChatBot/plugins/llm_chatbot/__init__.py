@@ -1,6 +1,6 @@
 import uuid
 import asyncio
-from nonebot import on_message
+from nonebot import on_message, on_command
 from nonebot.adapters.onebot.v11 import Bot, Event
 from .llm_module import LLMInterface
 from nonebot.rule import Rule, to_me
@@ -25,6 +25,9 @@ LLMInterface = LLMInterface(
 # 创建一个匹配所有消息事件的
 reply_rule = on_message(priority=8, block=True, rule=rule)
 update_rule = on_message(priority=10, block=False)
+
+# 添加命令规则：/role
+role_rule = on_command("role", priority=5, block=True, rule=rule)
 
 # 保存session和thread_id关联性的字典
 session_dic = {}
@@ -87,3 +90,11 @@ async def handle_update(bot: Bot, event: Event):
     loop = asyncio.get_running_loop()
     # 仅仅更新记忆
     await loop.run_in_executor(None, LLMInterface.call_model_with_langchain, user_message, False, session_dic[session_id])
+
+
+@role_rule.handle()
+async def handle_role(bot: Bot, event: Event):
+    # 获取用户发送的消息
+    user_message = event.get_plaintext()
+    LLMInterface.update_role_prompt(user_message)
+    await role_rule.finish("角色提示词已更新")

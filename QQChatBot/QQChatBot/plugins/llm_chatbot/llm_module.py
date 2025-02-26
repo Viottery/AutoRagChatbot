@@ -29,6 +29,7 @@ class LLMInterface:
         self.model_name = model_name
         self.temperature = temperature
         self.system_prompt = system_message
+        self.role_prompt = ""
 
         # Configure LangChain LLM
         self.llm = ChatOpenAI(
@@ -109,6 +110,10 @@ class LLMInterface:
                         new_msg = AIMessage(content=f"{msg.content}")
                     new_recent_messages.append(new_msg)
 
+            # 检查system_prompt是否需要更新
+            if self.role_prompt+self.system_prompt != system_prompt.content:
+                system_prompt = SystemMessage(content=self.role_prompt+self.system_prompt)
+
             # 返回更新后的消息列表：system prompt + 更新后的摘要 + 最新的五条消息
             # 同时返回需要删除的消息
             return {
@@ -187,6 +192,12 @@ class LLMInterface:
                         print()
                     break
             return ""
+
+    def update_role_prompt(self, role_prompt: str):
+        """
+        更新角色提示词
+        """
+        self.role_prompt = role_prompt
 
     def __repr__(self):
         return (
