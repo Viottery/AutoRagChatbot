@@ -1,5 +1,5 @@
 import uuid
-
+import asyncio
 from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, Event
 from .llm_module import LLMInterface
@@ -54,8 +54,9 @@ async def handle_reply(bot: Bot, event: Event):
     user_message = f"{user_name['nickname']}: {user_message}"
     print(f"user input: {user_message}")
 
+    loop = asyncio.get_running_loop()
     # 调用模型进行对话
-    echo_message = LLMInterface.call_model_with_langchain(user_message, reply=True, thread_id=session_dic[session_id])
+    echo_message = await loop.run_in_executor(None, LLMInterface.call_model_with_langchain, user_message, True, session_dic[session_id])
     await reply_rule.finish(echo_message)
 
 
@@ -83,5 +84,6 @@ async def handle_update(bot: Bot, event: Event):
     user_message = f"{user_name['nickname']}: {user_message}"
     print(f"content update: {user_message}")
 
+    loop = asyncio.get_running_loop()
     # 仅仅更新记忆
-    LLMInterface.call_model_with_langchain(user_message, reply=False, thread_id=session_dic[session_id])
+    await loop.run_in_executor(None, LLMInterface.call_model_with_langchain, user_message, False, session_dic[session_id])

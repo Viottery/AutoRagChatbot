@@ -171,7 +171,9 @@ class LLMInterface:
                 # print(f"AI: {response}")
                 if cnt == 3:
                     print(f"AI11: {response}")
-                    print(event)
+                    for message in event['messages']:
+                        print(message.content)
+                        print()
 
             return response
         else:
@@ -180,7 +182,9 @@ class LLMInterface:
             for event in self.workflow.stream({"messages": [input_message]}, config, stream_mode="values"):
                 cnt += 1
                 if cnt == 2:
-                    print(event)
+                    for message in event['messages']:
+                        print(message.content)
+                        print()
                     break
             return ""
 
