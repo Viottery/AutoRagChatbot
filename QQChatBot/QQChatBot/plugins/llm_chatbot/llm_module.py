@@ -98,7 +98,7 @@ class LLMInterface:
                 updated_summary = self.llm.invoke([new_summary_message]).content
                 summary_message = HumanMessage(content=updated_summary)  # 更新摘要消息
 
-            older_messages = messages[1:] if len(messages) > 7 else []
+            older_messages = messages[0:] if len(messages) > 7 else []
             # 按照内容重新构造 messages
             new_recent_messages = []
             if older_messages:
@@ -112,7 +112,7 @@ class LLMInterface:
 
             # 检查system_prompt是否需要更新
             if self.role_prompt+self.system_prompt != system_prompt.content:
-                system_prompt = SystemMessage(content=self.role_prompt+self.system_prompt)
+                system_prompt = SystemMessage(content="你的角色设定："+self.role_prompt+"\n"+self.system_prompt)
 
             # 返回更新后的消息列表：system prompt + 更新后的摘要 + 最新的五条消息
             # 同时返回需要删除的消息
