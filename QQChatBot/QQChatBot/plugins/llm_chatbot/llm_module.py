@@ -29,7 +29,6 @@ class LLMInterface:
         self.model_name = model_name
         self.temperature = temperature
         self.system_prompt = system_message
-        self.role_prompt = ""
 
         # Configure LangChain LLM
         self.llm = ChatOpenAI(
@@ -42,6 +41,7 @@ class LLMInterface:
         # Initialize LangGraph
         self.memory = MemorySaver()  # 使用 MemorySaver 作为持久化存储
         self.be_init = []  # 保存初始化过的thread_id
+        self.role_prompt = {}  # 保存角色提示词，key为thread_id
         self.workflow = self._create_workflow()  # 创建并编译工作流
 
         # 初始化增量摘要
@@ -61,11 +61,13 @@ class LLMInterface:
         # 定义增量摘要逻辑
         from langchain_core.messages import RemoveMessage
 
-        def update_summary(state: MessagesState):
+        def update_summary(state: MessagesState, config: dict):
             """
             更新增量摘要，保留 system prompt、summary 消息和五条最新的用户消息，并删除余下的消息。
             """
             messages = state["messages"]
+            thread_id = config["configurable"]["thread_id"]
+            print(f"thread_id: {thread_id}")
 
             # 确保消息列表中至少包含 system prompt 和 summary 消息
             if len(messages) < 3:
@@ -111,8 +113,8 @@ class LLMInterface:
                     new_recent_messages.append(new_msg)
 
             # 检查system_prompt是否需要更新
-            if self.role_prompt+self.system_prompt != system_prompt.content:
-                system_prompt = SystemMessage(content="你的角色设定："+self.role_prompt+"\n"+self.system_prompt)
+            if ("你的角色设定："+self.role_prompt[thread_id]+"\n"+self.system_prompt) != system_prompt.content:
+                system_prompt = SystemMessage(content="你的角色设定："+self.role_prompt[thread_id]+"\n"+self.system_prompt)
 
             # 返回更新后的消息列表：system prompt + 更新后的摘要 + 最新的五条消息
             # 同时返回需要删除的消息
@@ -193,11 +195,11 @@ class LLMInterface:
                     break
             return ""
 
-    def update_role_prompt(self, role_prompt: str):
+    def update_role_prompt(self, role_prompt: str, thread_id: str):
         """
         更新角色提示词
         """
-        self.role_prompt = role_prompt
+        self.role_prompt[thread_id] = role_prompt
 
     def __repr__(self):
         return (
