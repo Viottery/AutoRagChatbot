@@ -17,7 +17,7 @@ LLMInterface = LLMInterface(
     api_key=api_key,
     base_url="https://api.yesapikey.com/v1",
     model_name="gpt-4o-mini",
-    temperature=1,
+    temperature=2,
     system_message=system_prompt
 )
 
@@ -100,5 +100,5 @@ async def handle_role(bot: Bot, event: Event):
         session_id = "group" + session_id.split('_')[1]
     if session_id not in session_dic:
         session_dic[session_id] = str(uuid.uuid4())
-    LLMInterface.update_role_prompt(user_message)
+    LLMInterface.update_role_prompt(user_message, session_dic[session_id])
     await role_rule.finish("角色提示词已更新")

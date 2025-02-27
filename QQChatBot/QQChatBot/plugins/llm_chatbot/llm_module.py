@@ -1,5 +1,8 @@
 import os
 import uuid
+from platform import system_alias
+
+from charset_normalizer.utils import is_arabic
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, MessagesState, START
@@ -69,17 +72,33 @@ class LLMInterface:
             thread_id = config["configurable"]["thread_id"]
             print(f"thread_id: {thread_id}")
 
-            # 确保消息列表中至少包含 system prompt 和 summary 消息
-            if len(messages) < 3:
-                # 如果消息总数少于3条，直接返回原列表（因为没有足够的消息进行压缩）
-                return {"messages": messages}
-
             # 提取 system prompt 和 summary 消息
-            system_prompt = messages[0]  # 假设 system prompt 是第一条消息
-            summary_message = messages[1]  # 假设 summary 是第二条消息
+            print("all messages before:")
+            system_prompt = None
+            summary_message = None
+            for msg in messages:
+                print(msg)
+                if isinstance(msg, SystemMessage):
+                    system_prompt = msg
+                if msg.name == "summary":
+                    summary_message = msg
+            print("_______________________")
+            print("sys msg:", system_prompt)
+            print("summary msg:", summary_message)
+
+            # 检查角色设定是否存在，不存在则用空字符串代替
+            if thread_id not in self.role_prompt:
+                self.role_prompt[thread_id] = "暂无，仅作为ChatGPT"
+            # 检查system_prompt是否需要更新
+            if ("你的角色设定："+self.role_prompt[thread_id]+"\n"+self.system_prompt) != system_prompt.content:
+                system_prompt = SystemMessage(content="你的角色设定："+self.role_prompt[thread_id]+"\n"+self.system_prompt)
 
             # 提取最新的五条用户消息（确保不会超出列表范围）
             recent_messages = messages[-5:] if len(messages) > 5 else messages[2:]
+            print("recent messages:")
+            for msg in recent_messages:
+                print(msg.content)
+            print("_______________________________________________")
 
             # 获取需要删除的旧消息（排除 system prompt、summary 和最新的五条消息）
             # 注意边界条件：确保不会重复包含 system prompt 或 summary
@@ -98,13 +117,15 @@ class LLMInterface:
                 # 调用 LLM 更新摘要
                 new_summary_message = HumanMessage(content=summary_prompt)
                 updated_summary = self.llm.invoke([new_summary_message]).content
-                summary_message = HumanMessage(content=updated_summary)  # 更新摘要消息
+                summary_message = HumanMessage(content=updated_summary, name="summary")  # 更新摘要消息
+            else:
+                summary_message = HumanMessage(content=summary_message.content, name="summary")
 
-            older_messages = messages[0:] if len(messages) > 7 else []
+            older_messages = messages[:]
             # 按照内容重新构造 messages
-            new_recent_messages = []
+            new_recent_messages = [system_prompt, summary_message]
             if older_messages:
-                for msg in recent_messages:
+                for msg in recent_messages:  # 构造新的recent message
                     # 区分HumanMessage和AIMessage
                     if isinstance(msg, HumanMessage):
                         new_msg = HumanMessage(content=f"{msg.content}")
@@ -112,15 +133,10 @@ class LLMInterface:
                         new_msg = AIMessage(content=f"{msg.content}")
                     new_recent_messages.append(new_msg)
 
-            # 检查system_prompt是否需要更新
-            if ("你的角色设定："+self.role_prompt[thread_id]+"\n"+self.system_prompt) != system_prompt.content:
-                system_prompt = SystemMessage(content="你的角色设定："+self.role_prompt[thread_id]+"\n"+self.system_prompt)
-
             # 返回更新后的消息列表：system prompt + 更新后的摘要 + 最新的五条消息
             # 同时返回需要删除的消息
             return {
-                "messages": [RemoveMessage(id=msg.id) for msg in older_messages] + [system_prompt,
-                                                                                    summary_message] + new_recent_messages
+                "messages": [RemoveMessage(id=msg.id) for msg in older_messages] + new_recent_messages
             }
 
         # 添加节点和边
@@ -156,7 +172,7 @@ class LLMInterface:
                 break
 
             # 添加摘要消息（初始为空）
-            initial_summary = HumanMessage(content="前文摘要：暂无")
+            initial_summary = HumanMessage(content="前文摘要：暂无", name="summary")
             # 配置对话 ID
             config = {"configurable": {"thread_id": thread_id}}
             for event in self.workflow.stream({"messages": [initial_summary]}, config, stream_mode="values"):
